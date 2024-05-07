@@ -1,4 +1,5 @@
 /* eslint-disable prefer-destructuring */
+import { IComboBoxOption, ITag } from '@fluentui/react';
 import { IInputs } from '../generated/ManifestTypes';
 import { WholeNumberType } from '../@types/enums';
 import { IAppWrapperProps } from '../components/AppWrapper';
@@ -8,9 +9,16 @@ import {
   changeAliasNames,
   getEntityNameFromFetchXml,
   addAttributeIdInFetch } from '../utilities/fetchXmlUtils';
+import { getFetchResponse } from '../utilities/fetchUtils';
 
 export interface IDataverseService {
   getProps(): IAppWrapperProps;
+  getContext(): ComponentFramework.Context<IInputs>;
+  getLookupOptions(entityName: string): Promise<ITag[]>;
+  getAccountsAndContactsOptions(): Promise<ITag[]>;
+  getContactOrAccountById(recordId: string): Promise<ITag[]>;
+  getRecordById(entityName: string, recordId: string): Promise<ITag[]>;
+  getProvisionedLanguages() : Promise<any>;
   getEntityDisplayName(entityName: string): Promise<string>;
   getTimeZoneDefinitions(): Promise<Object>;
   getWholeNumberFieldName(
@@ -46,6 +54,170 @@ export class DataverseService implements IDataverseService {
 
   constructor(context: ComponentFramework.Context<IInputs>) {
     this._context = context;
+  }
+
+  public async getRecordById(entityName: string, recordId: string): Promise<ITag[]> {
+    try {
+      const metadata = await this._context.utils.getEntityMetadata(entityName);
+      const entityNameFieldName = metadata.PrimaryNameAttribute;
+      const entityIdFieldName = metadata.PrimaryIdAttribute;
+
+      const requestOptions = `?$select=${entityIdFieldName},${entityNameFieldName}`;
+      const record = await this.retrieveRecord(metadata._entitySetName, recordId, requestOptions);
+
+      const option: ITag[] = [{
+        key: record[entityIdFieldName],
+        name: record[entityNameFieldName] ?? '(No Name)',
+      }];
+
+      return option;
+    }
+    catch (err: any) {
+      console.error(`Error retrieving record with ID ${recordId} for entity ${entityName}:`, err);
+      throw err;
+    }
+  }
+
+  public async getContactOrAccountById(recordId: string): Promise<ITag[]> {
+    try {
+
+      const [account, contact] = await Promise.allSettled([
+        this.getRecordById('account', recordId),
+        this.getRecordById('contact', recordId),
+      ]);
+
+      if (account.status === 'fulfilled') {
+        return account.value;
+      }
+      else if (contact.status === 'fulfilled') {
+        return contact.value;
+      }
+      return [];
+    }
+    catch (error) {
+      console.error(`Error retrieving record with ID ${recordId}`, error);
+      throw error;
+    }
+  }
+
+  private async retrieveRecord(
+    entitySetName: string, recordId: string, requestOptions: string): Promise<any> {
+    try {
+      // @ts-ignore
+      const contextPage = this._context.page;
+      const baseUrl = contextPage.getClientUrl();
+      const requestUrl = `${baseUrl}/api/data/v9.2/${entitySetName}(${recordId})${requestOptions}`;
+
+      const response = await fetch(requestUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'OData-MaxVersion': '4.0',
+          'OData-Version': '4.0',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to retrieve record
+        ${recordId} for entity ${entitySetName}. HTTP status ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    }
+    catch (error) {
+      console.error(`Error retrieving record ${recordId} for entity ${entitySetName}:`, error);
+      throw error;
+    }
+  }
+
+  public async getLookupOptions(entityName: string): Promise<ITag[]> {
+    try {
+      const metadata = await this._context.utils.getEntityMetadata(entityName);
+      const entityNameFieldName = metadata.PrimaryNameAttribute;
+      const entityIdFieldName = metadata.PrimaryIdAttribute;
+
+      const fetchedOptions: EntityMetadata = await this.retrieveAllRecords(
+        metadata._entitySetName,
+        `?$select=${entityIdFieldName},${entityNameFieldName}`,
+      );
+
+      const options: ITag[] = fetchedOptions.value.map((option: {[key: string]: string}) => ({
+        key: option[entityIdFieldName],
+        name: option[entityNameFieldName] ?? '(No Name)',
+      }));
+
+      return options;
+    }
+    catch (err: any) {
+      console.error('Error retrieving lookup options:', err);
+      throw err;
+    }
+  }
+
+  public async getProvisionedLanguages() {
+    // @ts-ignore
+    const contextPage = this._context.page;
+    const baseUrl = contextPage.getClientUrl();
+    const request = `${baseUrl}/api/data/v9.1/RetrieveProvisionedLanguages`;
+
+    const results = await getFetchResponse(request);
+    return results.RetrieveProvisionedLanguages.map((language: any) => <IComboBoxOption><unknown>{
+      key: language.toString(),
+      name: this._context.formatting.formatLanguage(language),
+    });
+  }
+
+  private async retrieveAllRecords(entityName: string, query: string): Promise<any> {
+    try {
+      // @ts-ignore
+      const contextPage = this._context.page;
+      const baseUrl = contextPage.getClientUrl();
+      const requestUrl = `${baseUrl}/api/data/v9.2/${entityName}${query}`;
+
+      const response = await fetch(requestUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'OData-MaxVersion': '4.0',
+          'OData-Version': '4.0',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to retrieve records for entity
+        ${entityName}. HTTP status ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
+    }
+    catch (error) {
+      console.error('Error retrieving records:', error);
+      throw error;
+    }
+  }
+
+  public async getAccountsAndContactsOptions(): Promise<ITag[]> {
+    try {
+
+      const accountOptions: ITag[] = await this.getLookupOptions('account');
+      const contactOptions: ITag[] = await this.getLookupOptions('contact');
+
+      const options: ITag[] = [...accountOptions, ...contactOptions];
+
+      return options;
+    }
+    catch (err: any) {
+      console.error('Error retrieving Accounts and Contacts options:', err);
+      throw err;
+    }
+  }
+
+  public getContext() {
+    return this._context;
   }
 
   public getProps(): IAppWrapperProps {

@@ -63,7 +63,7 @@ const getLinkEntityFieldName = (
 const createColumnsForLinkEntity = (
   linkEntityNames: string[],
   linkEntityAttributes: EntityAttribute[][],
-  linkentityMetadata: EntityMetadata[],
+  linkEntityMetadata: EntityMetadata[],
   fetchXml: string | null,
   columnWidth: number,
 ): IColumn[] => {
@@ -79,11 +79,15 @@ const createColumnsForLinkEntity = (
         changedAliasNames, attr, index, i, linkEntityName);
 
       const columnName: string = attr.attributeAlias ||
-        linkentityMetadata[i].Attributes._collection[attr.name]?.DisplayName;
-      const attributeType = linkentityMetadata[i].Attributes._collection[attr.name]?.AttributeType;
+      linkEntityMetadata[i].Attributes._collection[attr.name]?.DisplayName;
+      const attributeType = linkEntityMetadata[i].Attributes._collection[attr.name]?.AttributeType;
 
       const isMultiselectPickList = attributeType === AttributeType.MultiselectPickList;
       const sortingIsAllowed = isMultiselectPickList || hasAggregate || changedAliasNames[index];
+
+      const fieldEntityName = attributeType === 6
+        ? linkEntityMetadata[i].Attributes._collection[attr.name]?._attributeTargets[0]
+        : '';
 
       columns.push({
         styles: sortingIsAllowed
@@ -100,6 +104,8 @@ const createColumnsForLinkEntity = (
         isResizable: true,
         isMultiline: false,
         calculatedWidth: columnWidth,
+        data: { attributeType, fieldEntityName },
+        columnActionsMode: 2,
       });
     });
   });
@@ -138,6 +144,12 @@ const createColumnsForEntity = (
       name = changedAliasNames[index];
     }
 
+    const fieldEntityName = attributeType === AttributeType.Lookup
+      ? displayNameCollection[name]._attributeTargets[0]
+      : '';
+
+    const attributeFormat = displayNameCollection[name]?.attributeDescriptor.Format || '';
+
     columns.push({
       styles: sortingIsAllowed
         ? { root: { '&:hover': { cursor: 'default' } } }
@@ -152,6 +164,8 @@ const createColumnsForEntity = (
       isResizable: true,
       isMultiline: false,
       calculatedWidth: columnWidth,
+      data: { attributeType, fieldEntityName, attributeFormat },
+      columnActionsMode: 2,
     });
   });
 
@@ -225,14 +239,17 @@ export const generateItems = (props: IItemProps, dataverseService: IDataverseSer
   const entityName: string = getEntityNameFromFetchXml(pagingFetchData ?? '');
 
   if (hasAggregate) {
+
     const entityAggregateAttrNames: string[] = isLinkEntity
       ? getLinkEntityAggregateAliasNames(pagingFetchData ?? '', index)
       : getFetchXmlAttributesData(pagingFetchData, false);
 
+    const displayName = entity[
+      `${entityAggregateAttrNames[index]}@OData.Community.Display.V1.FormattedValue`] ||
+    entity[entityAggregateAttrNames[index]];
+
     return item[entityAggregateAttrNames[index]] = {
-      displayName: !hasAggregate
-        ? entity[entityAggregateAttrNames[index]]
-        : entity[`${entityAggregateAttrNames[index]}@OData.Community.Display.V1.FormattedValue`],
+      displayName,
       isLinkable: false,
       entity,
       fieldName,
@@ -258,7 +275,7 @@ export const generateItems = (props: IItemProps, dataverseService: IDataverseSer
   };
 };
 
-const getRecordsData = async (
+export const getRecordsData = async (
   fetchXml: string | null,
   pagingData: any,
   dataverseService: IDataverseService): Promise<IRecordsData> => {
@@ -312,8 +329,24 @@ export const getItems = async (
   const recordsData: IRecordsData = await getRecordsData(
     fetchXml, { pageSize, currentPage }, dataverseService);
 
+  const fieldNameIndex: number = recordsData.attributesFieldNames.findIndex((item: any) =>
+    item === `${recordsData.entityName}id`);
+
+  const fieldAlias = recordsData.entityAliases[fieldNameIndex];
+
   recordsData.records.entities.forEach(entity => {
-    const item: Entity = isAggregate(fetchXml) ? {} : { id: entity[`${recordsData.entityName}id`] };
+    let item: Entity = {};
+
+    if (isAggregate(fetchXml)) {
+      const aliasedFieldId = entity[fieldAlias];
+      const id = entity.Id || aliasedFieldId;
+
+      item = { id };
+
+    }
+    else {
+      item = { id: entity[`${recordsData.entityName}id`] };
+    }
 
     generateItemsForEntity(recordsData, item, entity, dataverseService);
     generateItemsForLinkEntity(recordsData, item, entity, dataverseService);
@@ -345,7 +378,7 @@ export const getColumns = async (
     const attributeNames: string[] = linkEntityAttributes[i].map(attr => attr.name);
     return dataverseService.getEntityMetadata(linkEntityNames, attributeNames);
   });
-  const linkentityMetadata: EntityMetadata[] = await Promise.all(promises);
+  const linkEntityMetadata: EntityMetadata[] = await Promise.all(promises);
 
   let columnWidth = (allocatedWidth - 70) /
     (attributesFieldNames.length + linkEntityAttributes.flat().length) - 20;
@@ -363,7 +396,7 @@ export const getColumns = async (
   const linkEntityColumns = createColumnsForLinkEntity(
     linkEntityNames,
     linkEntityAttributes,
-    linkentityMetadata,
+    linkEntityMetadata,
     fetchXml,
     columnWidth,
   );

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IColumn, Stack } from '@fluentui/react';
 import { Entity, IItemsData } from '../@types/types';
 import { dataSetStyles } from '../styles/comandBarStyles';
@@ -7,11 +8,12 @@ import { List } from './List';
 import { Footer } from './Footer';
 import { useSelection } from '../hooks/useSelection';
 import { IDataverseService } from '../services/dataverseService';
-import { getSortedColumns, hashCode, getLinkableItems } from '../utilities/utils';
+import { hashCode, getLinkableItems, getSortedColumns } from '../utilities/utils';
 import {
+  addFilterToFetch,
   addOrderToFetch,
   getEntityNameFromFetchXml,
-  isAggregate } from '../utilities/fetchXmlUtils';
+  removeColumnFilter } from '../utilities/fetchXmlUtils';
 
 export interface IFetchToSubgridProps {
   fetchXml: string | null;
@@ -37,28 +39,60 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
     setError,
   } = props;
 
-  const [items, setItems] = React.useState<Entity[]>([]);
-  const [currentPage, setCurrentPage] = React.useState(1);
-  const [isDialogAccepted, setDialogAccepted] = React.useState(false);
+  const [items, setItems] = useState<Entity[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isDialogAccepted, setDialogAccepted] = useState(false);
   const [columns, setColumns] = React.useState<IColumn[]>([]);
 
-  const listInputsHashCode = React.useRef(-1);
-  const totalRecordsCount = React.useRef(0);
-  const [sortingData, setSortingData] = React.useState({ fieldName: '', column: undefined });
+  const listInputsHashCode = useRef(-1);
+  const totalRecordsCount = useRef(0);
+  const newFilteredFetchXml = useRef('');
+  const updatedFetchXml = useRef('');
+  const removingAttributeName = useRef('');
+  const columnType = useRef('');
+
+  const [sortingData, setSortingData] = useState({ fieldName: '', column: undefined });
+  const [filteringData, setFilteringData] = useState({ lookupFieldName: '', column: undefined });
 
   const entityName = getEntityNameFromFetchXml(fetchXml ?? '');
 
   const { selection, selectedRecordIds } = useSelection();
-  let isButtonActive = selectedRecordIds.length > 0 && !isAggregate(fetchXml);
+  let isButtonActive = selectedRecordIds.length > 0;
 
-  React.useLayoutEffect(() => {
+  const determineFetchXml = (
+    fetchXmlToUse: string | null,
+    newFetchXml: string) => sortingData.column === undefined &&
+    filteringData.column === undefined
+    ? fetchXmlToUse : newFetchXml;
+
+  const handleFiltering = async () => {
+    if (newFilteredFetchXml.current) {
+      newFilteredFetchXml.current = addFilterToFetch(
+        newFilteredFetchXml.current || fetchXml, filteringData);
+    }
+    else {
+      newFilteredFetchXml.current = addFilterToFetch(fetchXml, filteringData);
+    }
+
+    if (filteringData.column) {
+      totalRecordsCount.current = await dataverseService.getRecordsCount(
+        newFilteredFetchXml.current);
+    }
+    else {
+      totalRecordsCount.current = await dataverseService.getRecordsCount(fetchXml ?? '');
+    }
+
+    return newFilteredFetchXml.current;
+  };
+
+  useLayoutEffect(() => {
     if (allocatedWidth === -1) return;
     listInputsHashCode.current = hashCode(`${allocatedWidth}${fetchXml}`);
   }, [allocatedWidth, columns]);
 
-  React.useEffect(() => setCurrentPage(1), [pageSize, fetchXml]);
+  useEffect(() => setCurrentPage(1), [pageSize, fetchXml]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const fetchColumns = async () => {
       try {
         if (allocatedWidth === -1) return;
@@ -74,18 +108,35 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
     fetchColumns();
   }, [fetchXml, allocatedWidth]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const fetchItems = async () => {
       isButtonActive = false;
       setIsLoading(true);
-      if (isDialogAccepted) return;
 
+      if (isDialogAccepted) return;
       try {
         totalRecordsCount.current = await dataverseService.getRecordsCount(fetchXml ?? '');
-        const newFetchXml = addOrderToFetch(fetchXml, sortingData);
+
+        let newFetchXml = await handleFiltering();
+
+        if (sortingData.column === undefined && filteringData.column !== undefined) {
+          newFetchXml = newFilteredFetchXml.current;
+        }
+
+        if (removingAttributeName.current) {
+          newFilteredFetchXml.current = removeColumnFilter(
+            newFilteredFetchXml.current,
+            removingAttributeName.current,
+            columnType.current,
+          );
+        }
+
+        if (sortingData.column !== undefined) {
+          newFetchXml = addOrderToFetch(newFilteredFetchXml.current, sortingData);
+        }
 
         const data: IItemsData = {
-          fetchXml: sortingData.column === undefined ? fetchXml : newFetchXml,
+          fetchXml: determineFetchXml(newFilteredFetchXml.current, newFetchXml),
           pageSize,
           currentPage,
         };
@@ -101,7 +152,34 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
     };
 
     fetchItems();
-  }, [currentPage, isDialogAccepted, fetchXml, pageSize, sortingData]);
+  }, [sortingData, filteringData]);
+
+  useEffect(() => {
+    const fetchItems = async () => {
+      isButtonActive = false;
+      setIsLoading(true);
+
+      try {
+        totalRecordsCount.current = await dataverseService.getRecordsCount(fetchXml ?? '');
+
+        const data: IItemsData = {
+          fetchXml: sortingData.column === undefined ? fetchXml : newFilteredFetchXml.current,
+          pageSize,
+          currentPage,
+        };
+
+        const linkableItems: Entity[] = await getLinkableItems(data, dataverseService);
+
+        setItems(linkableItems);
+      }
+      catch (error: any) {
+        setError(error);
+      }
+      setIsLoading(false);
+    };
+
+    fetchItems();
+  }, [currentPage, isDialogAccepted, fetchXml, pageSize]);
 
   return <>
     <Stack horizontal horizontalAlign="end" className={dataSetStyles.buttons}>
@@ -120,11 +198,15 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
       _service={dataverseService}
       entityName={entityName}
       forceReRender={listInputsHashCode.current}
+      updatedFetchXml={updatedFetchXml.current}
+      removingAttributeName={removingAttributeName}
+      columnType={columnType}
       fetchXml={fetchXml}
       selection={selection}
       columns={columns}
       items={items}
       setSortingData={setSortingData}
+      setFilteringData={setFilteringData}
     />
 
     <Footer

@@ -54,11 +54,11 @@
 
 .FetchToSubgridControl .ms-DetailsHeader-cell, .FetchToSubgridControl .ms-DetailsRow-fields, .FetchToSubgridControl .ms-DetailsRow-cell {
   flex: 1 1 auto;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .FetchToSubgridControl .ms-DetailsHeader-cellName {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .FetchToSubgridControl .ms-DetailsHeader-cellIsCheck, .FetchToSubgridControl .ms-DetailsRow-cellCheck {
@@ -76,7 +76,7 @@
 .FetchToSubgridControl .ms-DetailsHeader-filterChevron {
   font-size: 8px;
   font-size: 8px;
-  color: rgb(96, 94, 92);
+  color: rgb(55 54 54);
 }
 
 .FetchToSubgridControl .ms-DetailsHeader-check {

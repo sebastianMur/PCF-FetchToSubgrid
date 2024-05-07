@@ -1,6 +1,7 @@
 /* global HTMLCollectionOf, NodeListOf */
 import { IColumn } from '@fluentui/react';
 import { Dictionary, EntityAttribute, OrderInFetchXml } from '../@types/types';
+import { formatCondition } from './filterUtils';
 
 export const changeAliasNames = (fetchXml: string) => {
   const parser = new DOMParser();
@@ -103,6 +104,147 @@ export const addOrderToFetch = (
   return new XMLSerializer().serializeToString(xmlDoc);
 };
 
+export const addFilterToFetch = (
+  fetchXml: string | null,
+  filteringData: any,
+): string => {
+  const parser: DOMParser = new DOMParser();
+  const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
+
+  const entity: Element = xmlDoc.getElementsByTagName('entity')[0];
+  const linkEntity: Element = xmlDoc.getElementsByTagName('link-entity')[0];
+
+  const entityFilter: Element = entity?.getElementsByTagName('filter')[0];
+  const linkEntityFilter: Element = linkEntity?.getElementsByTagName('filter')[0];
+
+  let existingFilter: Element | null = null;
+
+  let operatorName = '';
+  let conditionValue = '';
+
+  if (typeof filteringData?.selectedOption?.key === 'number') {
+    const condition = formatCondition(
+      filteringData?.selectedOption?.key,
+      filteringData.inputValue,
+      filteringData.attributeFormat,
+    );
+    operatorName = condition.conditionOperator;
+    conditionValue = condition.value;
+  }
+
+  if (entityFilter) {
+    const conditions: HTMLCollectionOf<Element> = entityFilter.getElementsByTagName('condition');
+
+    for (let i = 0; i < conditions.length; i++) {
+      const condition: Element = conditions[i];
+
+      if (filteringData.lookupFieldName) {
+        if (condition.getAttribute('attribute') === filteringData.fieldName ||
+            condition.getAttribute('attribute') === filteringData.lookupFieldName
+        ) {
+          condition.setAttribute('attribute', filteringData.lookupFieldName);
+          condition.setAttribute('value', conditionValue);
+          condition.setAttribute('operator', operatorName);
+          existingFilter = entityFilter;
+          break;
+        }
+      }
+      else if (condition.getAttribute('attribute') === filteringData.fieldName ||
+          condition.getAttribute('attribute') === `${filteringData.fieldName}name`
+      ) {
+        condition.setAttribute('attribute', filteringData.fieldName);
+        condition.setAttribute('value', conditionValue);
+        condition.setAttribute('operator', operatorName);
+
+        existingFilter = entityFilter;
+        break;
+      }
+    }
+  }
+
+  if (!existingFilter) {
+    const newFilter: HTMLElement = xmlDoc.createElement('filter');
+    newFilter.setAttribute('type', 'and');
+
+    const newCondition: HTMLElement = xmlDoc.createElement('condition');
+    newCondition.setAttribute('operator', operatorName);
+    newCondition.setAttribute('value', conditionValue);
+
+    newCondition.setAttribute('attribute', filteringData.lookupFieldName
+      ? filteringData.lookupFieldName
+      : filteringData.fieldName);
+
+    if (filteringData.column?.className === 'entity') {
+      if (entityFilter) {
+        entityFilter.appendChild(newCondition);
+      }
+      else {
+        newFilter.appendChild(newCondition);
+        entity.appendChild(newFilter);
+      }
+    }
+    else if (filteringData.column?.className === 'linkEntity') {
+      if (linkEntityFilter) {
+        linkEntityFilter.appendChild(newCondition);
+      }
+      else {
+        newFilter.appendChild(newCondition);
+        linkEntity.appendChild(newFilter);
+      }
+    }
+  }
+
+  return new XMLSerializer().serializeToString(xmlDoc);
+};
+
+const removeFilterConditions = (parentElement: Element, attributeName: string) => {
+  const filters: HTMLCollectionOf<Element> = parentElement.getElementsByTagName('filter');
+
+  for (let i = 0; i < filters.length; i++) {
+    const filter: Element = filters[i];
+    const conditions: HTMLCollectionOf<Element> = filter.getElementsByTagName('condition');
+
+    for (let j = 0; j < conditions.length; j++) {
+      const condition: Element = conditions[j];
+
+      if (condition.getAttribute('attribute') === attributeName) {
+        filter.removeChild(condition);
+      }
+    }
+  }
+};
+
+export const removeColumnFilter = (
+  fetchXml: string,
+  attributeName: string,
+  columnType: string): string => {
+  const parser: DOMParser = new DOMParser();
+  const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
+
+  const entity: Element | null = xmlDoc.getElementsByTagName('entity')[0];
+  const linkEntity: Element | null = xmlDoc.getElementsByTagName('link-entity')[0];
+
+  if (entity && columnType === 'entity') {
+    removeFilterConditions(entity, attributeName);
+  }
+
+  if (linkEntity && columnType === 'linkEntity') {
+    removeFilterConditions(linkEntity, attributeName);
+  }
+
+  const modifiedFetchXml = new XMLSerializer().serializeToString(xmlDoc);
+
+  return modifiedFetchXml;
+};
+
+export const getColumnName = (column: IColumn): string => {
+  const { fieldName, className, ariaLabel } = column;
+  const isLinkEntity = className === 'linkEntity';
+  const columnFieldName = isLinkEntity ? ariaLabel : fieldName;
+
+  return columnFieldName || '';
+};
+
 export const getLinkEntitiesNamesFromFetchXml = (
   fetchXml: string): Dictionary<EntityAttribute[]> => {
   const parser: DOMParser = new DOMParser();
@@ -159,6 +301,22 @@ export const getFetchXmlAttributesData = (
   return attributesFieldNames;
 };
 
+export const checkButtonsAvailable = (columnName: string, fetchXml: string): boolean => {
+  const parser: DOMParser = new DOMParser();
+  const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
+
+  const attributeWithAlias = xmlDoc.querySelector(`attribute[alias="${columnName}"]`);
+
+  if (attributeWithAlias) {
+    const aggregateElement = attributeWithAlias.getAttribute('aggregate');
+    if (aggregateElement) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export const addAttributeIdInFetch = (fetchXml: string, entityName: string): string => {
   const parser: DOMParser = new DOMParser();
   const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
@@ -173,12 +331,19 @@ export const addAttributeIdInFetch = (fetchXml: string, entityName: string): str
   if (entityElement) {
     const entityIdAttribute = `${entityName}id`;
 
-    const existingAttribute: Element | null = entityElement.querySelector(
+    const existingAttributeId: Element | null = entityElement.querySelector(
       `attribute[name="${entityIdAttribute}"]`);
 
-    if (!existingAttribute) {
+    const aggregate = xmlDoc.getElementsByTagName('fetch')?.[0]?.getAttribute('aggregate') ?? '';
+
+    if (!existingAttributeId) {
       const newAttributeElement: Element = xmlDoc.createElement('attribute');
       newAttributeElement.setAttribute('name', entityIdAttribute);
+      if (aggregate === 'true') {
+        newAttributeElement.setAttribute('groupby', 'true');
+        newAttributeElement.setAttribute('alias', 'Id');
+      }
+
       entityElement.appendChild(newAttributeElement);
     }
   }

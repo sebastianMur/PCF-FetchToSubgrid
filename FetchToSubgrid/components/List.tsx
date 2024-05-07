@@ -1,57 +1,219 @@
 import * as React from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Entity, IService } from '../@types/types';
-import { isAggregate } from '../utilities/fetchXmlUtils';
-import { sortColumns } from '../utilities/utils';
-import { DetailsList, DetailsListLayoutMode, IColumn, ISelection } from '@fluentui/react';
+import {
+  DetailsList,
+  DetailsListLayoutMode,
+  IColumn,
+  ISelection,
+  ContextualMenu,
+  IContextualMenuItem,
+  DirectionalHint,
+  Stack,
+  IComboBoxOption,
+} from '@fluentui/react';
 import { IDataverseService } from '../services/dataverseService';
+import { FilterPopup } from './FilterPopup';
+import {
+  addFilterIconToColumn,
+  getFilterItems,
+  removeFilterIconToColumn,
+} from '../utilities/filterUtils';
+import { checkButtonsAvailable, getColumnName } from '../utilities/fetchXmlUtils';
+import { sortColumns } from '../utilities/utils';
+import { AttributeType } from '../@types/enums';
 
 interface IListProps extends IService<IDataverseService> {
   entityName: string;
   fetchXml: string | null;
   forceReRender: number;
+  updatedFetchXml: string;
+  removingAttributeName: React.MutableRefObject<string>;
+  columnType: React.MutableRefObject<string>;
   columns: IColumn[];
   items: Entity[];
   selection: ISelection;
   setSortingData: any;
+  setFilteringData: any;
 }
 
-export const List: React.FC<IListProps> = props => {
-  const {
-    _service: dataverseService,
-    entityName,
-    fetchXml,
-    columns,
-    forceReRender,
-    items,
-    selection,
-    setSortingData,
-  } = props;
+export interface IInitialInputValue {
+  fieldName: string;
+  inputValue: string;
+  selectedOption: IComboBoxOption;
+}
 
-  const onItemInvoked = React.useCallback((record?: Entity, index?: number | undefined): void => {
-    const hasAggregate: boolean = isAggregate(fetchXml ?? '');
-    if (index !== undefined && !hasAggregate) {
-      dataverseService.openRecordForm(entityName, record?.id);
+export const List: React.FC<IListProps> = ({
+  _service: dataverseService,
+  entityName,
+  fetchXml,
+  columns,
+  forceReRender,
+  removingAttributeName,
+  columnType,
+  items,
+  selection,
+  setSortingData,
+  setFilteringData,
+}: IListProps) => {
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [selectedColumn, setSelectedColumn] = useState<IColumn | null>(null);
+  const [target, setTarget] = useState<HTMLElement>();
+  const [menuItems, setMenuItems] = useState<IContextualMenuItem[]>([]);
+  const [isFilterPopupVisible, setIsFilterPopupVisible] = useState(false);
+  const [initialInputValues, setInitialInputValues] = useState<IInitialInputValue[]>([]);
+
+  const columnSortTypeRef = useRef<string>();
+
+  const handleSortItems = (sortType: string) => {
+    if (!selectedColumn) return;
+    if (selectedColumn?.className === 'colIsNotSortable') return;
+    const fieldName = selectedColumn?.className === 'linkEntity'
+      ? selectedColumn?.ariaLabel : selectedColumn?.fieldName;
+
+    sortColumns(columns, selectedColumn?.fieldName, sortType === 'descending');
+    setSortingData({ fieldName, column: selectedColumn });
+
+    selectedColumn.isSortedDescending = sortType === 'ascending';
+    columnSortTypeRef.current = sortType;
+
+    setMenuVisible(false);
+  };
+
+  const handleRemoveFilter = () => {
+    if (!selectedColumn || !selectedColumn.fieldName) return;
+    const { fieldName } = selectedColumn;
+    const { attributeType } = selectedColumn.data;
+    const columnFieldName = getColumnName(selectedColumn);
+
+    removingAttributeName.current = columnFieldName!;
+    columnType.current = selectedColumn.className!;
+
+    const matchingValue = initialInputValues.find(val =>
+      val.fieldName === columnFieldName,
+    );
+    const operation = matchingValue?.selectedOption.text;
+
+    if (attributeType === AttributeType.Lookup && operation !== 'Equals') {
+      removingAttributeName.current = `${columnFieldName}name`!;
     }
-  }, [fetchXml]);
 
-  const onColumnHeaderClick = React.useCallback(async (
-    dialogEvent?: React.MouseEvent<HTMLElement, MouseEvent>,
-    column?: IColumn): Promise<void> => {
-    if (column?.className === 'colIsNotSortable') return;
+    removeFilterIconToColumn(fieldName, columns);
+    setFilteringData({
+      condition: fieldName,
+      column: undefined,
+    });
 
-    const fieldName = column?.className === 'linkEntity' ? column?.ariaLabel : column?.fieldName;
+    setSelectedColumn(selectedColumn);
+    setMenuVisible(false);
+  };
 
-    sortColumns(columns, column?.fieldName, undefined);
-    setSortingData({ fieldName, column });
-  }, [columns, fetchXml]);
+  const onColumnHeaderClick = async (
+    ev?: React.MouseEvent<HTMLElement, MouseEvent>,
+    column?: IColumn,
+  ) => {
+    if (!column) return;
 
-  return <DetailsList
-    key={forceReRender}
-    columns={columns}
-    items={items}
-    layoutMode={DetailsListLayoutMode.fixedColumns}
-    onItemInvoked={onItemInvoked}
-    onColumnHeaderClick={onColumnHeaderClick}
-    selection={selection}
-  />;
+    setSelectedColumn(column);
+    setTarget(ev?.target as HTMLElement);
+    setMenuVisible(true);
+  };
+
+  const handleConfirm = (selectedOption: IComboBoxOption, inputValue: string) => {
+    if (!selectedColumn || !selectedColumn.fieldName) return;
+    const { fieldName } = selectedColumn;
+    const { attributeFormat, attributeType } = selectedColumn.data;
+    const columnFieldName = getColumnName(selectedColumn);
+    let lookUpColumnName = '';
+
+    if (attributeType === AttributeType.Lookup || attributeType === AttributeType.Customer) {
+      if (selectedOption.text !== 'Equals') {
+        lookUpColumnName = `${columnFieldName}name`;
+      }
+    }
+    else {
+      lookUpColumnName = '';
+    }
+
+    addFilterIconToColumn(fieldName, columns);
+    removingAttributeName.current = '';
+
+    setFilteringData({
+      column: selectedColumn,
+      fieldName: columnFieldName,
+      lookupFieldName: lookUpColumnName,
+      attributeFormat,
+      selectedOption,
+      inputValue,
+    });
+
+    const newInputValue = { fieldName, inputValue, selectedOption };
+    const matchingValueIndex = initialInputValues.findIndex(val => val.fieldName === fieldName);
+
+    if (matchingValueIndex !== -1) {
+      const newValues = [...initialInputValues];
+      newValues[matchingValueIndex] = { ...newValues[matchingValueIndex], ...newInputValue };
+
+      setInitialInputValues(newValues);
+    }
+    else {
+      setInitialInputValues([...initialInputValues, newInputValue]);
+    }
+  };
+
+  const onItemInvoked = useCallback((record?: Entity): void => {
+    dataverseService.openRecordForm(entityName, record?.id);
+  }, [dataverseService, entityName, fetchXml]);
+
+  useEffect(() => {
+    if (!selectedColumn) return;
+
+    const isButtonsAvailable = checkButtonsAvailable(selectedColumn.name, fetchXml!);
+    if (!isButtonsAvailable) setMenuVisible(false);
+
+    if (selectedColumn) {
+      const items = getFilterItems(
+        selectedColumn,
+        handleRemoveFilter,
+        handleSortItems,
+        setIsFilterPopupVisible);
+
+      setMenuItems(items);
+    }
+
+  }, [selectedColumn, columnSortTypeRef.current, target, menuVisible]);
+
+  return (
+    <Stack>
+      <DetailsList
+        key={forceReRender}
+        columns={columns}
+        items={items}
+        layoutMode={DetailsListLayoutMode.fixedColumns}
+        onItemInvoked={onItemInvoked}
+        onColumnHeaderClick={onColumnHeaderClick}
+        selection={selection}
+      />
+      {menuVisible && selectedColumn &&
+        <ContextualMenu
+          items={menuItems}
+          gapSpace={2}
+          isBeakVisible={false}
+          directionalHint={DirectionalHint.bottomLeftEdge}
+          onDismiss={() => setMenuVisible(false)}
+          target={target}
+        />
+      }
+      {isFilterPopupVisible && target && selectedColumn &&
+      <FilterPopup
+        column={selectedColumn}
+        target={target}
+        hideFilterMenu={() => setIsFilterPopupVisible(false)}
+        handleConfirm={handleConfirm}
+        dataverseService={dataverseService}
+        initialInputValues={initialInputValues}
+      />
+      }
+    </Stack>
+  );
 };
