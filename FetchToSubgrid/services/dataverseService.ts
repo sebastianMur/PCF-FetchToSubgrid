@@ -1,5 +1,5 @@
 /* eslint-disable prefer-destructuring */
-import { IComboBoxOption, ITag } from '@fluentui/react';
+import { IComboBoxOption, IDropdownOption, ITag } from '@fluentui/react';
 import { IInputs } from '../generated/ManifestTypes';
 import { WholeNumberType } from '../@types/enums';
 import { IAppWrapperProps } from '../components/AppWrapper';
@@ -18,6 +18,11 @@ export interface IDataverseService {
   getAccountsAndContactsOptions(): Promise<ITag[]>;
   getContactOrAccountById(recordId: string): Promise<ITag[]>;
   getRecordById(entityName: string, recordId: string): Promise<ITag[]>;
+  getDropdownOptions(
+    fieldName: string,
+    attributeType: string,
+    entityName: string,
+    isTwoOptions: boolean): any;
   getProvisionedLanguages() : Promise<any>;
   getEntityDisplayName(entityName: string): Promise<string>;
   getTimeZoneDefinitions(): Promise<Object>;
@@ -78,9 +83,51 @@ export class DataverseService implements IDataverseService {
     }
   }
 
+  public async getDropdownOptions(
+    fieldName: string,
+    attributeType: string,
+    entityName: string,
+    isTwoOptions: boolean) {
+
+    // @ts-ignore
+    const contextPage = this._context.page;
+    const baseUrl = contextPage.getClientUrl();
+
+    // const targetEntityType = 'bvr_porduct_ftg';
+
+    const request = `${baseUrl}/api/data/v9.1/EntityDefinitions(LogicalName='${
+      entityName}')/Attributes/Microsoft.Dynamics.CRM.${
+      attributeType}?$select=LogicalName,${isTwoOptions
+      ? 'DefaultValue' : 'DefaultFormValue'}&$filter=LogicalName eq '${
+      fieldName}'&$expand=OptionSet`;
+
+    let options: IDropdownOption[] = [];
+    let defaultValue = '';
+    const results = await getFetchResponse(request);
+
+    if (!isTwoOptions) {
+      options = results.value[0].OptionSet.Options.map((result: any) => ({
+        key: result.Value.toString(),
+        text: result.Label.UserLocalizedLabel.Label,
+      }));
+      defaultValue = results.value[0].DefaultFormValue?.toString();
+    }
+    else {
+      const trueKey = results.value[0].OptionSet.TrueOption.Value.toString();
+      const trueText = results.value[0].OptionSet.TrueOption.Label.UserLocalizedLabel.Label;
+      options.push({ key: trueKey, text: trueText });
+
+      const falseKey = results.value[0].OptionSet.FalseOption.Value.toString();
+      const falseText = results.value[0].OptionSet.FalseOption.Label.UserLocalizedLabel.Label;
+      options.push({ key: falseKey, text: falseText });
+
+      defaultValue = results?.value[0].DefaultValue ? trueKey : falseKey;
+    }
+    return { fieldName, options, defaultValue: defaultValue === '-1' ? '' : defaultValue };
+  }
+
   public async getContactOrAccountById(recordId: string): Promise<ITag[]> {
     try {
-
       const [account, contact] = await Promise.allSettled([
         this.getRecordById('account', recordId),
         this.getRecordById('contact', recordId),
@@ -135,6 +182,7 @@ export class DataverseService implements IDataverseService {
   public async getLookupOptions(entityName: string): Promise<ITag[]> {
     try {
       const metadata = await this._context.utils.getEntityMetadata(entityName);
+
       const entityNameFieldName = metadata.PrimaryNameAttribute;
       const entityIdFieldName = metadata.PrimaryIdAttribute;
 

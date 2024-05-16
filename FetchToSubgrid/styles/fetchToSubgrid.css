@@ -34,6 +34,8 @@
   text-align: center;
   width: 100%;
   cursor: pointer;
+  color: red;
+  font-weight: 100;
 }
 
 .FetchToSubgridControl .ms-List {

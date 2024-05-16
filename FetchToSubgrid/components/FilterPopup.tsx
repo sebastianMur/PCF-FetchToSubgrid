@@ -16,12 +16,14 @@ import { FilterInputComponent } from './FilterInputComponent';
 import { getOptionsByAttributeType, isInputHidden } from '../utilities/filterUtils';
 import { IDataverseService } from '../services/dataverseService';
 import { IInitialInputValue } from './List';
+import { AttributeType } from '../@types/enums';
 
 interface FilterPopupProps {
   dataverseService: IDataverseService;
   column: IColumn;
   target: HTMLElement;
   initialInputValues: IInitialInputValue[];
+  entityName: string;
   hideFilterMenu: () => void;
   handleConfirm: (selectedOption: IComboBoxOption, inputValue: string) => void;
 }
@@ -31,14 +33,20 @@ export const FilterPopup: React.FC<FilterPopupProps> = ({
   column,
   target,
   initialInputValues,
+  entityName,
   hideFilterMenu,
   handleConfirm,
 }) => {
   const checkBoxOptions = getOptionsByAttributeType(column.data.attributeType);
 
   const matchingValue = initialInputValues.find(val =>
-    val.fieldName === column.fieldName,
+    val.fieldName === column.fieldName ||
+    val.fieldName === column.data?.initialColumnData?._logicalName,
   );
+
+  // const matchingValue = initialInputValues.find(val =>
+  //   val.fieldName === column.fieldName);
+
   const isHidden = !isInputHidden(matchingValue?.selectedOption?.key as number || 0);
 
   const [selectedOption, setSelectedOption] = useState<IComboBoxOption>(
@@ -68,8 +76,30 @@ export const FilterPopup: React.FC<FilterPopupProps> = ({
     hideFilterMenu();
   };
 
+  function isValidUUID(uuid: string) {
+    const uuidRegex =
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    return uuidRegex.test(uuid);
+  }
+
   const onTextChange = (value: string) => {
-    setInputValue(value);
+    if (column.name === 'Primary Key' || column.data.attributeType === AttributeType.PrimaryKey) {
+
+      if (isValidUUID(value || '')) {
+        setInputValue(value || '');
+        setInputErrorMessage('');
+        setDisableButton(false);
+      }
+      else {
+        setInputValue(value);
+        setDisableButton(true);
+        setInputErrorMessage('Please enter a valid UUID.');
+      }
+    }
+    else {
+      setInputValue(value || '');
+      setInputErrorMessage('');
+    }
   };
 
   return (
@@ -103,6 +133,7 @@ export const FilterPopup: React.FC<FilterPopupProps> = ({
             column={column}
             inputValue={inputValue}
             selectedOption={selectedOption}
+            entityName={entityName}
             setInputValue={setInputValue}
             onTextChange={e => onTextChange(e.currentTarget.value)}
             initialInputValues={initialInputValues}

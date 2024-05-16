@@ -104,7 +104,7 @@ const createColumnsForLinkEntity = (
         isResizable: true,
         isMultiline: false,
         calculatedWidth: columnWidth,
-        data: { attributeType, fieldEntityName },
+        data: { attributeType, fieldEntityName, linkEntityName },
         columnActionsMode: 2,
       });
     });
@@ -123,6 +123,8 @@ const createColumnsForEntity = (
   const columns: IColumn[] = [];
 
   attributesFieldNames.forEach((name, index) => {
+    const initialColumnData = displayNameCollection[name];
+
     if (!displayNameCollection) return;
 
     let displayName = name === `${entityName}id`
@@ -164,7 +166,12 @@ const createColumnsForEntity = (
       isResizable: true,
       isMultiline: false,
       calculatedWidth: columnWidth,
-      data: { attributeType, fieldEntityName, attributeFormat },
+      data: {
+        attributeType,
+        fieldEntityName,
+        attributeFormat,
+        initialColumnData: aliasNames[index] ? initialColumnData : undefined,
+      },
       columnActionsMode: 2,
     });
   });

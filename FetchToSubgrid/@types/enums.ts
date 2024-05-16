@@ -11,6 +11,8 @@ export enum AttributeType {
   PickList = 11,
   MultiselectPickList = 17,
   Status = 13,
+  PrimaryKey = 15,
+  StateCode = 12,
 }
 
 export enum WholeNumberType {

@@ -264,6 +264,9 @@ export const getOptionsByAttributeType = (attributeType: number) => {
     case AttributeType.MultiselectPickList:
       return multiSelectOptionList;
 
+    case AttributeType.PickList:
+      return textOptionList;
+
     case AttributeType.TwoOptions:
     case AttributeType.Status:
       return twoOptionList;
@@ -284,16 +287,32 @@ export const fiscalYearOptions = () => {
 };
 
 export const addFilterIconToColumn = (fieldName: string, columns: IColumn[]) => {
+
   const column = columns.find(column => column.fieldName === fieldName);
+
+  const aliasedColumn = columns.find(column =>
+    column.data?.initialColumnData?._logicalName === fieldName);
+
   if (column) {
     column.isFiltered = true;
+  }
+  else if (aliasedColumn) {
+    aliasedColumn.isFiltered = true;
   }
 };
 
 export const removeFilterIconToColumn = (fieldName: string, columns: IColumn[]) => {
   const column = columns.find(column => column.fieldName === fieldName);
+
+  const aliasedColumn = columns.find(column => column.ariaLabel === fieldName) ||
+  columns.find(column =>
+    column.data?.initialColumnData?._logicalName === fieldName);
+
   if (column) {
     column.isFiltered = false;
+  }
+  else if (aliasedColumn) {
+    aliasedColumn.isFiltered = false;
   }
 };
 

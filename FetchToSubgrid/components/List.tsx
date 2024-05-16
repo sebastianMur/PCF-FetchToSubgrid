@@ -29,6 +29,7 @@ interface IListProps extends IService<IDataverseService> {
   forceReRender: number;
   updatedFetchXml: string;
   removingAttributeName: React.MutableRefObject<string>;
+  currentLinkEntityName: React.MutableRefObject<string>;
   columnType: React.MutableRefObject<string>;
   columns: IColumn[];
   items: Entity[];
@@ -50,6 +51,7 @@ export const List: React.FC<IListProps> = ({
   columns,
   forceReRender,
   removingAttributeName,
+  currentLinkEntityName,
   columnType,
   items,
   selection,
@@ -67,9 +69,13 @@ export const List: React.FC<IListProps> = ({
 
   const handleSortItems = (sortType: string) => {
     if (!selectedColumn) return;
-    if (selectedColumn?.className === 'colIsNotSortable') return;
-    const fieldName = selectedColumn?.className === 'linkEntity'
+    let fieldName = selectedColumn?.className === 'linkEntity' ||
+    selectedColumn?.className === 'colIsNotSortable'
       ? selectedColumn?.ariaLabel : selectedColumn?.fieldName;
+
+    if (!fieldName) {
+      fieldName = selectedColumn.data?.initialColumnData?._logicalName;
+    }
 
     sortColumns(columns, selectedColumn?.fieldName, sortType === 'descending');
     setSortingData({ fieldName, column: selectedColumn });
@@ -82,23 +88,37 @@ export const List: React.FC<IListProps> = ({
 
   const handleRemoveFilter = () => {
     if (!selectedColumn || !selectedColumn.fieldName) return;
-    const { fieldName } = selectedColumn;
+    let { fieldName } = selectedColumn;
     const { attributeType } = selectedColumn.data;
-    const columnFieldName = getColumnName(selectedColumn);
+    let columnFieldName = getColumnName(selectedColumn);
 
-    removingAttributeName.current = columnFieldName!;
+    if (selectedColumn.data.initialColumnData) {
+      const aliasedFieldName = selectedColumn.data.initialColumnData._logicalName;
+      fieldName = aliasedFieldName;
+      columnFieldName = aliasedFieldName;
+    }
+
+    removingAttributeName.current = selectedColumn.ariaLabel || columnFieldName!;
+    currentLinkEntityName.current = selectedColumn.data?.linkEntityName;
     columnType.current = selectedColumn.className!;
+
+    // const matchingValue = initialInputValues.find(val =>
+    //   val.fieldName === column.fieldName ||
+    //   val.fieldName === column.data?.initialColumnData._logicalName,
+    // );
 
     const matchingValue = initialInputValues.find(val =>
       val.fieldName === columnFieldName,
     );
+
     const operation = matchingValue?.selectedOption.text;
 
     if (attributeType === AttributeType.Lookup && operation !== 'Equals') {
       removingAttributeName.current = `${columnFieldName}name`!;
     }
 
-    removeFilterIconToColumn(fieldName, columns);
+    removeFilterIconToColumn(selectedColumn.ariaLabel || fieldName, columns);
+
     setFilteringData({
       condition: fieldName,
       column: undefined,
@@ -148,6 +168,7 @@ export const List: React.FC<IListProps> = ({
     });
 
     const newInputValue = { fieldName, inputValue, selectedOption };
+
     const matchingValueIndex = initialInputValues.findIndex(val => val.fieldName === fieldName);
 
     if (matchingValueIndex !== -1) {
@@ -212,6 +233,7 @@ export const List: React.FC<IListProps> = ({
         handleConfirm={handleConfirm}
         dataverseService={dataverseService}
         initialInputValues={initialInputValues}
+        entityName={entityName}
       />
       }
     </Stack>

@@ -19,6 +19,7 @@ interface FilterInputComponentProps {
   dataverseService: IDataverseService;
   column: IColumn;
   inputValue: string;
+  entityName: string;
   inputErrorMessage: string;
   initialInputValues: IInitialInputValue[];
   selectedOption: IComboBoxOption;
@@ -34,6 +35,7 @@ export const FilterInputComponent: FC<FilterInputComponentProps> = ({
   dataverseService,
   column,
   inputValue,
+  entityName,
   inputErrorMessage,
   selectedOption,
   initialInputValues,
@@ -43,6 +45,7 @@ export const FilterInputComponent: FC<FilterInputComponentProps> = ({
 }: FilterInputComponentProps) => {
   const [isValidNumber, setIsValidNumber] = React.useState<boolean>(true);
   const [lookups, setLookups] = React.useState<ITag[]>([]);
+  const [options, setOptions] = React.useState<IComboBoxOption[]>([]);
 
   function findNameByKey(key: string): string | null {
     for (let i = 0; i < lookups.length; i++) {
@@ -62,6 +65,79 @@ export const FilterInputComponent: FC<FilterInputComponentProps> = ({
       const matchingInputValue: IInitialInputValue | undefined = initialInputValues.find(
         (inputValue: any) => inputValue.fieldName === column.fieldName,
       );
+
+      const linkEntityName = column?.data?.linkEntityName;
+
+      if (column.data.attributeType === AttributeType.TwoOptions) {
+        const result = await dataverseService.getDropdownOptions(
+          column.ariaLabel! || column.fieldName!,
+          'BooleanAttributeMetadata',
+          linkEntityName || entityName,
+          true,
+        );
+        setOptions(result.options);
+      }
+
+      else if (column.data.attributeType === AttributeType.MultiselectPickList) {
+        const fieldName = column.fieldName!.startsWith('alias')
+          ? column.data?.initialColumnData?._logicalName : column.fieldName!;
+
+        const linkEntityName = column?.data?.linkEntityName;
+
+        const result = await dataverseService.getDropdownOptions(
+          column.ariaLabel! || fieldName,
+          'MultiSelectPicklistAttributeMetadata',
+          linkEntityName || entityName,
+          false,
+        );
+
+        setOptions(result.options);
+      }
+
+      else if (column.data.attributeType === AttributeType.PickList) {
+        const fieldName = column.fieldName!.startsWith('alias')
+          ? column.data?.initialColumnData?._logicalName : column.fieldName!;
+
+        const linkEntityName = column?.data?.linkEntityName;
+        const result = await dataverseService.getDropdownOptions(
+          column.ariaLabel || fieldName,
+          'PicklistAttributeMetadata',
+          linkEntityName || entityName,
+          false,
+        );
+
+        setOptions(result.options);
+      }
+
+      else if (column.data.attributeType === AttributeType.Status) {
+        const fieldName = column.fieldName!.startsWith('alias')
+          ? column.data?.initialColumnData?._logicalName : column.fieldName!;
+
+        const linkEntityName = column?.data?.linkEntityName;
+        const result = await dataverseService.getDropdownOptions(
+          column.ariaLabel! || fieldName,
+          'StatusAttributeMetadata',
+          linkEntityName || entityName,
+          false,
+        );
+
+        setOptions(result.options);
+      }
+      else if (column.data.attributeType === AttributeType.StateCode) {
+        const fieldName = column.fieldName!.startsWith('alias')
+          ? column.data?.initialColumnData?._logicalName : column.fieldName!;
+
+        const linkEntityName = column?.data?.linkEntityName;
+        const result = await dataverseService.getDropdownOptions(
+          column.ariaLabel! || fieldName,
+          'StateAttributeMetadata',
+          linkEntityName || entityName,
+          false,
+        );
+
+        setOptions(result.options);
+      }
+
       if (matchingInputValue && column.data.attributeType === AttributeType.Lookup &&
             matchingInputValue.selectedOption.text === 'Equals'
       ) {
@@ -219,10 +295,7 @@ export const FilterInputComponent: FC<FilterInputComponentProps> = ({
       return (
         <ComboBox
           className="filterInput"
-          options={[
-            { key: '1', text: 'Yes' },
-            { key: '0', text: 'No' },
-          ]}
+          options={options}
           onChange={handleTwoOptionChange}
           selectedKey={inputValue}
         />
@@ -231,10 +304,35 @@ export const FilterInputComponent: FC<FilterInputComponentProps> = ({
       return (
         <ComboBox
           className="filterInput"
-          options={[
-            { key: '0', text: 'Active' },
-            { key: '1', text: 'Inactive' },
-          ]}
+          options={options}
+          onChange={handleTwoOptionChange}
+          selectedKey={inputValue}
+        />
+      );
+    case AttributeType.StateCode:
+      return (
+        <ComboBox
+          className="filterInput"
+          options={options}
+          onChange={handleTwoOptionChange}
+          selectedKey={inputValue}
+        />
+      );
+
+    case AttributeType.MultiselectPickList:
+      return (
+        <ComboBox
+          className="filterInput"
+          options={options}
+          onChange={handleTwoOptionChange}
+          selectedKey={inputValue}
+        />
+      );
+    case AttributeType.PickList:
+      return (
+        <ComboBox
+          className="filterInput"
+          options={options}
           onChange={handleTwoOptionChange}
           selectedKey={inputValue}
         />

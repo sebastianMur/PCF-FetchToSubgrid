@@ -49,6 +49,7 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
   const newFilteredFetchXml = useRef('');
   const updatedFetchXml = useRef('');
   const removingAttributeName = useRef('');
+  const currentLinkEntityName = useRef('');
   const columnType = useRef('');
 
   const [sortingData, setSortingData] = useState({ fieldName: '', column: undefined });
@@ -127,6 +128,7 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
           newFilteredFetchXml.current = removeColumnFilter(
             newFilteredFetchXml.current,
             removingAttributeName.current,
+            currentLinkEntityName.current,
             columnType.current,
           );
         }
@@ -152,7 +154,7 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
     };
 
     fetchItems();
-  }, [sortingData, filteringData]);
+  }, [sortingData, filteringData, removingAttributeName.current]);
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -200,6 +202,7 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
       forceReRender={listInputsHashCode.current}
       updatedFetchXml={updatedFetchXml.current}
       removingAttributeName={removingAttributeName}
+      currentLinkEntityName={currentLinkEntityName}
       columnType={columnType}
       fetchXml={fetchXml}
       selection={selection}

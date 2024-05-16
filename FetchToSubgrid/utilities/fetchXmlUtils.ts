@@ -73,6 +73,37 @@ export const getOrderInFetchXml = (fetchXml: string): OrderInFetchXml | null => 
   };
 };
 
+// const linkEntities = xmlDoc.getElementsByTagName('link-entity');
+
+// let linkEntity;
+
+// let linkEntityFilter;
+
+// for (let i = 0; i < linkEntities.length; i++) {
+//   const currentLinkEntity = linkEntities[i];
+
+//   currentLinkEntity?.removeAttribute('type');
+//   const name = currentLinkEntity.getAttribute('name');
+
+//   if (name === filteringData.column?.data?.linkEntityName) {
+//     linkEntity = currentLinkEntity;
+//     const [firstFilter] = Array.from(currentLinkEntity.getElementsByTagName('filter'));
+
+//     linkEntityFilter = firstFilter;
+//     break;
+//   }
+// }
+
+export const isAggregate = (fetchXml: string | null): boolean => {
+  const parser: DOMParser = new DOMParser();
+  const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
+
+  const aggregate = xmlDoc.getElementsByTagName('fetch')?.[0]?.getAttribute('aggregate') ?? '';
+  if (aggregate === 'true') return true;
+
+  return false;
+};
+
 export const addOrderToFetch = (
   fetchXml: string | null,
   sortingData: { fieldName: string, column?: IColumn }): string => {
@@ -80,25 +111,59 @@ export const addOrderToFetch = (
   const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
 
   const entity: Element = xmlDoc.getElementsByTagName('entity')[0];
-  const linkEntity: Element = xmlDoc.getElementsByTagName('link-entity')[0];
+  // const linkEntity: Element = xmlDoc.getElementsByTagName('link-entity')[0];
+  const linkEntities = xmlDoc.getElementsByTagName('link-entity');
+  let linkEntity;
+
+  for (let i = 0; i < linkEntities.length; i++) {
+    const currentLinkEntity = linkEntities[i];
+
+    const name = currentLinkEntity.getAttribute('name');
+
+    if (name === sortingData.column?.data?.linkEntityName) {
+      linkEntity = currentLinkEntity;
+      break;
+    }
+  }
 
   const entityOrder: Element = entity?.getElementsByTagName('order')[0];
-  const linkOrder: Element = linkEntity?.getElementsByTagName('order')[0];
+  const linkOrder = linkEntity?.getElementsByTagName('order')[0];
 
-  if (entityOrder) {
-    const parent: Element = linkOrder ? linkEntity : entity;
-    parent.removeChild(linkOrder || entityOrder);
+  if (linkOrder && linkOrder.parentNode === linkEntity) {
+    linkEntity.removeChild(linkOrder);
   }
+  else if (entityOrder && entityOrder.parentNode === entity) {
+    entity.removeChild(entityOrder);
+  }
+
+  const hasAggregate = isAggregate(fetchXml ?? '');
 
   const newOrder: HTMLElement = xmlDoc.createElement('order');
-  newOrder?.setAttribute('attribute', `${sortingData.fieldName}`);
-  newOrder?.setAttribute('descending', `${!sortingData.column?.isSortedDescending}`);
 
-  if (sortingData.column?.className === 'linkEntity') {
-    linkEntity?.appendChild(newOrder);
+  if (sortingData.column && sortingData.column.fieldName &&
+    hasAggregate && sortingData.column.fieldName.startsWith('alias')) {
+
+    newOrder?.setAttribute('alias', `${sortingData?.column?.fieldName}`);
+    newOrder?.setAttribute('descending', `${!sortingData.column?.isSortedDescending}`);
   }
   else {
+    newOrder?.setAttribute('attribute', `${sortingData.fieldName}`);
+    newOrder?.setAttribute('descending', `${!sortingData.column?.isSortedDescending}`);
+  }
+
+  if (sortingData.column?.className === 'entity') {
     entity.appendChild(newOrder);
+  }
+  else if (sortingData.column?.className === 'colIsNotSortable') {
+    if (sortingData.column.data.linkEntityName) {
+      linkEntity?.appendChild(newOrder);
+    }
+    else {
+      entity.appendChild(newOrder);
+    }
+  }
+  else {
+    linkEntity?.appendChild(newOrder);
   }
 
   return new XMLSerializer().serializeToString(xmlDoc);
@@ -112,10 +177,39 @@ export const addFilterToFetch = (
   const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
 
   const entity: Element = xmlDoc.getElementsByTagName('entity')[0];
-  const linkEntity: Element = xmlDoc.getElementsByTagName('link-entity')[0];
+  const linkEntities = xmlDoc.getElementsByTagName('link-entity');
 
-  const entityFilter: Element = entity?.getElementsByTagName('filter')[0];
-  const linkEntityFilter: Element = linkEntity?.getElementsByTagName('filter')[0];
+  let linkEntity;
+
+  let linkEntityFilter;
+
+  for (let i = 0; i < linkEntities.length; i++) {
+    const currentLinkEntity = linkEntities[i];
+
+    currentLinkEntity?.removeAttribute('type');
+    const name = currentLinkEntity.getAttribute('name');
+
+    if (name === filteringData.column?.data?.linkEntityName) {
+      linkEntity = currentLinkEntity;
+      const [firstFilter] = Array.from(currentLinkEntity.getElementsByTagName('filter'));
+
+      linkEntityFilter = firstFilter;
+      break;
+    }
+  }
+
+  const entityFilters = entity?.getElementsByTagName('filter');
+  let entityFilter;
+
+  if (entityFilters) {
+    for (let i = 0; i < entityFilters.length; i++) {
+      const filter = entityFilters[i];
+      if (filter.parentNode === entity) {
+        entityFilter = filter;
+        break;
+      }
+    }
+  }
 
   let existingFilter: Element | null = null;
 
@@ -159,10 +253,33 @@ export const addFilterToFetch = (
         existingFilter = entityFilter;
         break;
       }
+      else if (filteringData.column) {
+        if (filteringData.column.data?.initialColumnData?._logicalName ===
+          condition.getAttribute('attribute')) {
+
+          condition.setAttribute('attribute',
+            filteringData.column.data?.initialColumnData?._logicalName);
+
+          condition.setAttribute('value', conditionValue);
+          condition.setAttribute('operator', operatorName);
+          existingFilter = entityFilter;
+          break;
+        }
+        else if (filteringData.column.className !== 'linkEntity') {
+          const attributeName = filteringData.column.data?.initialColumnData?._logicalName ||
+          filteringData.fieldName;
+
+          condition.setAttribute('attribute', attributeName);
+          condition.setAttribute('value', conditionValue);
+          condition.setAttribute('operator', operatorName);
+          existingFilter = entityFilter;
+          break;
+        }
+      }
     }
   }
 
-  if (!existingFilter) {
+  if (!existingFilter) { // create new filter attribute
     const newFilter: HTMLElement = xmlDoc.createElement('filter');
     newFilter.setAttribute('type', 'and');
 
@@ -175,15 +292,10 @@ export const addFilterToFetch = (
       : filteringData.fieldName);
 
     if (filteringData.column?.className === 'entity') {
-      if (entityFilter) {
-        entityFilter.appendChild(newCondition);
-      }
-      else {
-        newFilter.appendChild(newCondition);
-        entity.appendChild(newFilter);
-      }
+      newFilter.appendChild(newCondition);
+      entity.appendChild(newFilter);
     }
-    else if (filteringData.column?.className === 'linkEntity') {
+    else if (filteringData.column?.className === 'linkEntity' && linkEntity) {
       if (linkEntityFilter) {
         linkEntityFilter.appendChild(newCondition);
       }
@@ -191,6 +303,27 @@ export const addFilterToFetch = (
         newFilter.appendChild(newCondition);
         linkEntity.appendChild(newFilter);
       }
+    }
+    else if (filteringData.column?.className === 'colIsNotSortable') {
+      if (filteringData.column.ariaLabel) {
+        newCondition.setAttribute('attribute', filteringData.column.ariaLabel);
+      }
+      else {
+        newCondition.setAttribute('attribute',
+          filteringData.column.data?.initialColumnData?._logicalName);
+      }
+
+      const linkEntityName = filteringData.column.data?.linkEntityName;
+
+      if (linkEntityName) {
+        newFilter.appendChild(newCondition);
+        linkEntity!.appendChild(newFilter);
+      }
+      else {
+        newFilter.appendChild(newCondition);
+        entity.appendChild(newFilter);
+      }
+
     }
   }
 
@@ -217,12 +350,25 @@ const removeFilterConditions = (parentElement: Element, attributeName: string) =
 export const removeColumnFilter = (
   fetchXml: string,
   attributeName: string,
+  currentLinkEntityName: string,
   columnType: string): string => {
   const parser: DOMParser = new DOMParser();
   const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
 
   const entity: Element | null = xmlDoc.getElementsByTagName('entity')[0];
-  const linkEntity: Element | null = xmlDoc.getElementsByTagName('link-entity')[0];
+  // const linkEntity: Element | null = xmlDoc.getElementsByTagName('link-entity')[0];
+  const linkEntities = xmlDoc.getElementsByTagName('link-entity');
+  let linkEntity;
+
+  for (let i = 0; i < linkEntities.length; i++) {
+    const currentLinkEntity = linkEntities[i];
+
+    const name = currentLinkEntity.getAttribute('name');
+
+    if (name === currentLinkEntityName) {
+      linkEntity = currentLinkEntity;
+    }
+  }
 
   if (entity && columnType === 'entity') {
     removeFilterConditions(entity, attributeName);
@@ -230,6 +376,9 @@ export const removeColumnFilter = (
 
   if (linkEntity && columnType === 'linkEntity') {
     removeFilterConditions(linkEntity, attributeName);
+  }
+  else if (columnType === 'colIsNotSortable') {
+    removeFilterConditions(entity, attributeName);
   }
 
   const modifiedFetchXml = new XMLSerializer().serializeToString(xmlDoc);
@@ -366,16 +515,6 @@ export const getLinkEntityAggregateAliasNames = (fetchXml: string, i: number): s
   });
 
   return aggregateAttrNames;
-};
-
-export const isAggregate = (fetchXml: string | null): boolean => {
-  const parser: DOMParser = new DOMParser();
-  const xmlDoc: Document = parser.parseFromString(fetchXml ?? '', 'text/xml');
-
-  const aggregate = xmlDoc.getElementsByTagName('fetch')?.[0]?.getAttribute('aggregate') ?? '';
-  if (aggregate === 'true') return true;
-
-  return false;
 };
 
 export const getTopInFetchXml = (fetchXml: string | null): number => {
