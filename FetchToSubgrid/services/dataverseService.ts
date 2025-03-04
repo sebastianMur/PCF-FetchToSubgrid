@@ -49,17 +49,18 @@ export class DataverseService implements IDataverseService {
   }
 
   public getProps(): IAppWrapperProps {
-    const fetchXmlOrJson: string | null = this._context.parameters.fetchXmlProperty.raw;
+    const fetchXmlOrJson: string | null = this._context.parameters.fetchXml.raw;
 
-    let defaultPageSize: number = this._context.parameters.defaultPageSize.raw || 1;
-    if (defaultPageSize < 0) defaultPageSize = 1;
+    let defaultPageSize: number = this._context.parameters.defaultPageSize.raw || 10;
+
+    if (defaultPageSize < 0) defaultPageSize = 10;
 
     const props: IAppWrapperProps = {
       _service: this,
       fetchXmlOrJson,
       allocatedWidth: this.getAllocatedWidth(),
       default: {
-        fetchXml: this._context.parameters.defaultFetchXml.raw,
+        fetchXml: this._context.parameters.fetchXml.raw,
         pageSize: defaultPageSize,
         newButtonVisibility: this._context.parameters.newButtonVisibility.raw === '1',
         deleteButtonVisibility: this._context.parameters.deleteButtonVisibility.raw === '1',

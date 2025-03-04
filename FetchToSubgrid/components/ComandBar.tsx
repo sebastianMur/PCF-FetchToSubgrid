@@ -24,45 +24,45 @@ export const CommandBar = ({
   newButtonVisibility,
   deleteButtonVisibility,
   setDialogAccepted }: ICommandBarProps) => {
-  const displayName = React.useRef('');
+    const displayName = React.useRef('');
 
-  React.useEffect(() => {
-    const fetchDisplayName = async () => {
-      displayName.current = await dataverseService.getEntityDisplayName(entityName);
+    React.useEffect(() => {
+      const fetchDisplayName = async () => {
+        displayName.current = await dataverseService.getEntityDisplayName(entityName);
+      };
+      fetchDisplayName();
+    }, [entityName]);
+
+    const handleNewButtonClick = () => dataverseService.openNewRecord(entityName);
+
+    const handleDeleteButtonClick = async () => {
+      const deleteDialogStatus = await dataverseService.openRecordDeleteDialog(entityName);
+
+      if (deleteDialogStatus.confirmed) {
+        setDialogAccepted(true);
+        await dataverseService.deleteSelectedRecords(selectedRecordIds, entityName);
+        setDialogAccepted(false);
+      }
     };
-    fetchDisplayName();
-  }, [entityName]);
 
-  const handleNewButtonClick = () => dataverseService.openNewRecord(entityName);
-
-  const handleDeleteButtonClick = async () => {
-    const deleteDialogStatus = await dataverseService.openRecordDeleteDialog(entityName);
-
-    if (deleteDialogStatus.confirmed) {
-      setDialogAccepted(true);
-      await dataverseService.deleteSelectedRecords(selectedRecordIds, entityName);
-      setDialogAccepted(false);
-    }
-  };
-
-  return (
-    <div className='containerButtons'>
-      {newButtonVisibility &&
-        <CommandBarButton
-          styles={ContainerButtonStyles}
-          maxLength={1}
-          iconProps={addIcon}
-          text={`New ${displayName.current}`}
-          onClick={handleNewButtonClick}
-        />
-      }
-      {deleteButtonVisibility && isButtonActive &&
-        <CommandBarButton
-          styles={ContainerButtonStyles}
-          iconProps={deleteIcon}
-          text="Delete"
-          onClick={handleDeleteButtonClick}
-        />
-      }
-    </div>);
+    return (
+      <div className='containerButtons'>
+        {newButtonVisibility &&
+          <CommandBarButton
+            styles={ContainerButtonStyles}
+            maxLength={1}
+            iconProps={addIcon}
+            text={`New ${displayName.current}`}
+            onClick={handleNewButtonClick}
+          />
+        }
+        {deleteButtonVisibility && isButtonActive &&
+          <CommandBarButton
+            styles={ContainerButtonStyles}
+            iconProps={deleteIcon}
+            text="Delete"
+            onClick={handleDeleteButtonClick}
+          />
+        }
+      </div>);
 };
