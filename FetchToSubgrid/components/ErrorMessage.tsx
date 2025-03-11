@@ -12,6 +12,6 @@ export const ErrorMessage: React.FC<IErrorMessageProps> = ({ error, dataverseSer
       className='errorMessageText'
       onClick={() => dataverseService.openErrorDialog(error)}
     >
-      An error has occurred!
+      An error has occurred.
     </h1>
   </div>;

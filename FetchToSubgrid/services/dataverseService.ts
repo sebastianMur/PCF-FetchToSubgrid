@@ -4,20 +4,13 @@ import { WholeNumberType } from '../@types/enums';
 import { IAppWrapperProps } from '../components/AppWrapper';
 import { getFormattingFieldValue } from '../utilities/utils';
 import { Entity, EntityMetadata, RetrieveRecords, DialogResponse } from '../@types/types';
-import {
-  changeAliasNames,
-  getEntityNameFromFetchXml,
-  addAttributeIdInFetch } from '../utilities/fetchXmlUtils';
+import { changeAliasNames, getEntityNameFromFetchXml, addAttributeIdInFetch } from '../utilities/fetchXmlUtils';
 
 export interface IDataverseService {
   getProps(): IAppWrapperProps;
   getEntityDisplayName(entityName: string): Promise<string>;
   getTimeZoneDefinitions(): Promise<Object>;
-  getWholeNumberFieldName(
-    format: string,
-    entity: Entity,
-    fieldName: string,
-    timeZoneDefinitions: any): string;
+  getWholeNumberFieldName(format: string, entity: Entity, fieldName: string, timeZoneDefinitions: any): string;
   getRecordsCount(fetchXml: string): Promise<number>;
   getEntityMetadata(entityName: string, attributesFieldNames: string[]): Promise<EntityMetadata>;
   getCurrentPageRecords(fetchXml: string | null): Promise<RetrieveRecords>;
@@ -27,12 +20,11 @@ export interface IDataverseService {
   openPrimaryEntityForm(entity: Entity, entityName: string): void;
   openErrorDialog(error: Error): Promise<void>;
   openRecordDeleteDialog(entityName: string): Promise<DialogResponse>;
+  openRecordCopyDialog(entityName: string): Promise<DialogResponse>;
   getRelationships(parentEntityName: string): any;
   openNewRecord(entityName: string): void;
-  deleteSelectedRecords(
-    selectedRecordIds: string[],
-    entityName: string,
-  ): Promise<void>;
+  deleteSelectedRecords(selectedRecordIds: string[], entityName: string): Promise<void>;
+  copySelectedRecords(selectedRecordIds: string[], entityName: string): Promise<void>;
 }
 
 type RelationshipEntity = {
@@ -43,28 +35,30 @@ type RelationshipEntity = {
 
 export class DataverseService implements IDataverseService {
   private _context: ComponentFramework.Context<IInputs>;
+  private _envVariableUrlFlow: string | null;
 
-  constructor(context: ComponentFramework.Context<IInputs>) {
+  constructor(context: ComponentFramework.Context<IInputs>, envVariableUrlFlow: string | null) {
     this._context = context;
+    this._envVariableUrlFlow = envVariableUrlFlow;
   }
 
   public getProps(): IAppWrapperProps {
-    const fetchXmlOrJson: string | null = this._context.parameters.fetchXmlProperty.raw;
+    const fetchXmlOrJson: string | null = this._context.parameters.fetchXml.raw;
 
-    let defaultPageSize: number = this._context.parameters.defaultPageSize.raw || 1;
-    if (defaultPageSize < 0) defaultPageSize = 1;
+    let defaultPageSize: number = this._context.parameters.defaultPageSize.raw || 10;
+
+    if (defaultPageSize < 0) defaultPageSize = 10;
 
     const props: IAppWrapperProps = {
       _service: this,
       fetchXmlOrJson,
       allocatedWidth: this.getAllocatedWidth(),
       default: {
-        fetchXml: this._context.parameters.defaultFetchXml.raw,
+        fetchXml: this._context.parameters.fetchXml.raw,
         pageSize: defaultPageSize,
-        newButtonVisibility: this._context.parameters.newButtonVisibility.raw === '1',
-        deleteButtonVisibility: this._context.parameters.deleteButtonVisibility.raw === '1',
+        newButtonVisibility: this._context.parameters.newButtonVisibility.raw,
+        deleteButtonVisibility: this._context.parameters.deleteButtonVisibility.raw,
       },
-
     };
     return props;
   }
@@ -78,8 +72,7 @@ export class DataverseService implements IDataverseService {
     // @ts-ignore
     const contextPage = this._context.page;
 
-    const response: Response = await fetch(
-      `${contextPage.getClientUrl()}/api/data/v9.0/timezonedefinitions`);
+    const response: Response = await fetch(`${contextPage.getClientUrl()}/api/data/v9.0/timezonedefinitions`);
 
     const results = await response.json();
     return results;
@@ -93,23 +86,35 @@ export class DataverseService implements IDataverseService {
     const parentEntityName: string = contextPage.entityTypeName;
     const entityId: string = contextPage.entityId;
 
-    const relationshipEntities: RelationshipEntity[] = await this.getRelationships(
-      parentEntityName);
+    const relationshipEntities: RelationshipEntity[] = await this.getRelationships(parentEntityName);
 
     const relationship: RelationshipEntity | undefined = relationshipEntities.find(
-      relationshipEntity => relationshipEntity.ReferencingEntity === entityName);
+      relationshipEntity => relationshipEntity.ReferencingEntity === entityName,
+    );
 
     if (relationship) {
-      const lookup: { id: string, name: string, entityType: string } =
-      { id: entityId, name: lookupName, entityType: parentEntityName };
-      const formParameters: { [key: string]: string } =
-       { [relationship.ReferencingAttribute]: JSON.stringify(lookup) };
+      const lookup: { id: string; name: string; entityType: string } = { id: entityId, name: lookupName, entityType: parentEntityName };
+      const formParameters: { [key: string]: string } = { [relationship.ReferencingAttribute]: JSON.stringify(lookup) };
 
       this._context.navigation.openForm({ entityName }, formParameters);
-    }
-    else {
+    } else {
       this._context.navigation.openForm({ entityName });
     }
+  }
+
+  public async getEnvironmentVariableValue(environmentVariableName: string): Promise<string> {
+    // @ts-ignore
+    const contextPage = this._context.page;
+
+    const response: Response = await fetch(
+      `${contextPage.getClientUrl()}/api/data/v9.2/environmentvariablevalues?$filter=schemaname eq '${environmentVariableName}'`,
+    );
+
+    const result = await response.json();
+    console.log('🚀 ~ DataverseService ~ getEnvironmentVariableValue ~ result:', result);
+    debugger;
+
+    return result.value.length > 0 ? result.value[0].value : '';
   }
 
   public async getRelationships(parentEntityName: string): Promise<RelationshipEntity[]> {
@@ -119,19 +124,13 @@ export class DataverseService implements IDataverseService {
     const relationships = `OneToManyRelationships($select=ReferencingEntity,ReferencingAttribute)`;
     const logicalName = '&$select=LogicalName';
 
-    const response: Response = await fetch(
-      `${contextPage.getClientUrl()}${entityDefinitions}?$expand=${relationships}${logicalName}`);
+    const response: Response = await fetch(`${contextPage.getClientUrl()}${entityDefinitions}?$expand=${relationships}${logicalName}`);
 
     const result = await response.json();
     return result.OneToManyRelationships;
   }
 
-  public getWholeNumberFieldName(
-    format: string,
-    entity: Entity,
-    fieldName: string,
-    timeZoneDefinitions: any,
-  ): string {
+  public getWholeNumberFieldName(format: string, entity: Entity, fieldName: string, timeZoneDefinitions: any): string {
     const fieldValue: number = entity[fieldName];
 
     if (!fieldValue) return '';
@@ -185,8 +184,7 @@ export class DataverseService implements IDataverseService {
 
     do {
       const updatedFetchXml: string = updateFetchXml(changedAliasNames, ++page);
-      const data: any = await this._context.webAPI.retrieveMultipleRecords(
-        entityName, `?fetchXml=${encodeURIComponent(updatedFetchXml)}`);
+      const data: any = await this._context.webAPI.retrieveMultipleRecords(entityName, `?fetchXml=${encodeURIComponent(updatedFetchXml)}`);
 
       numberOfRecords += data.entities.length;
       pagingCookie = data.fetchXmlPagingCookie;
@@ -195,11 +193,8 @@ export class DataverseService implements IDataverseService {
     return numberOfRecords;
   }
 
-  public async getEntityMetadata(
-    entityName: string, attributesFieldNames: string[]): Promise<EntityMetadata> {
-    const entityMetadata: EntityMetadata = await this._context.utils.getEntityMetadata(
-      entityName,
-      [...attributesFieldNames]);
+  public async getEntityMetadata(entityName: string, attributesFieldNames: string[]): Promise<EntityMetadata> {
+    const entityMetadata: EntityMetadata = await this._context.utils.getEntityMetadata(entityName, [...attributesFieldNames]);
 
     return entityMetadata;
   }
@@ -225,8 +220,7 @@ export class DataverseService implements IDataverseService {
     if (fieldName.startsWith('alias')) {
       entityName = entity[`${fieldName}@Microsoft.Dynamics.CRM.lookuplogicalname`];
       entityId = entity[`${fieldName}`];
-    }
-    else {
+    } else {
       entityName = entity[`_${fieldName}_value@Microsoft.Dynamics.CRM.lookuplogicalname`];
       entityId = entity[`_${fieldName}_value`];
     }
@@ -248,11 +242,26 @@ export class DataverseService implements IDataverseService {
     const confirmOptions = { height: 200, width: 450 };
     const confirmStrings = {
       text: `Do you want to delete this ${entityMetadata?._displayName}?
-      You can't undo this action.`, title: 'Confirm Deletion',
+      You can't undo this action.`,
+      title: 'Confirm Deletion',
     };
 
-    const deleteDialogStatus: DialogResponse = await this._context.navigation.openConfirmDialog(
-      confirmStrings, confirmOptions);
+    const deleteDialogStatus: DialogResponse = await this._context.navigation.openConfirmDialog(confirmStrings, confirmOptions);
+
+    return deleteDialogStatus;
+  }
+
+  public async openRecordCopyDialog(entityName: string): Promise<DialogResponse> {
+    const entityMetadata: EntityMetadata = await this._context.utils.getEntityMetadata(entityName);
+
+    const confirmOptions = { height: 200, width: 450 };
+    const confirmStrings = {
+      text: `Do you want to copy this ${entityMetadata?._displayName}?
+      You can't undo this action.`,
+      title: 'Confirm',
+    };
+
+    const deleteDialogStatus: DialogResponse = await this._context.navigation.openConfirmDialog(confirmStrings, confirmOptions);
 
     return deleteDialogStatus;
   }
@@ -269,9 +278,45 @@ export class DataverseService implements IDataverseService {
       for (const id of recordIds) {
         await this._context.webAPI.deleteRecord(entityName, id);
       }
-    }
-    catch (e) {
+    } catch (e) {
       console.log(e);
+    }
+  }
+
+  public async copySelectedRecords(recordIds: string[], entityName: string): Promise<void> {
+    try {
+      console.log(recordIds);
+      console.log(entityName);
+
+      if (!this._envVariableUrlFlow) {
+        throw new Error('Flow URL is not provided');
+      }
+
+      const urlFlow = await this.getEnvironmentVariableValue(this._envVariableUrlFlow);
+      if (!urlFlow) {
+        throw new Error('Flow URL is not provided');
+      }
+      const response = await fetch(urlFlow, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // If authentication is needed, include your token or API key here.
+          // "Authorization": "Bearer <your_token>"
+        },
+        body: JSON.stringify({
+          recordIds: recordIds,
+          entityName: entityName,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Flow call failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('Flow executed successfully', result);
+    } catch (error) {
+      console.error('Error calling Power Automate flow', error);
     }
   }
 

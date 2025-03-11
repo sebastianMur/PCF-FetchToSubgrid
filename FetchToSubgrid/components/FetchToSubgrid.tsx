@@ -8,10 +8,7 @@ import { Footer } from './Footer';
 import { useSelection } from '../hooks/useSelection';
 import { IDataverseService } from '../services/dataverseService';
 import { getSortedColumns, hashCode, getLinkableItems } from '../utilities/utils';
-import {
-  addOrderToFetch,
-  getEntityNameFromFetchXml,
-  isAggregate } from '../utilities/fetchXmlUtils';
+import { addOrderToFetch, getEntityNameFromFetchXml, isAggregate } from '../utilities/fetchXmlUtils';
 
 export interface IFetchToSubgridProps {
   fetchXml: string | null;
@@ -46,27 +43,26 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
   const totalRecordsCount = React.useRef(0);
   const [sortingData, setSortingData] = React.useState({ fieldName: '', column: undefined });
 
-  const entityName = getEntityNameFromFetchXml(fetchXml ?? '');
+  const entityName = fetchXml ? getEntityNameFromFetchXml(fetchXml) : '';
 
   const { selection, selectedRecordIds } = useSelection();
-  let isButtonActive = selectedRecordIds.length > 0 && !isAggregate(fetchXml);
+  let isButtonActive = selectedRecordIds.length > 0 && fetchXml && !isAggregate(fetchXml);
 
   React.useLayoutEffect(() => {
-    if (allocatedWidth === -1) return;
+    if (allocatedWidth === -1 || !fetchXml) return;
     listInputsHashCode.current = hashCode(`${allocatedWidth}${fetchXml}`);
-  }, [allocatedWidth, columns]);
+  }, [allocatedWidth, fetchXml, columns]);
 
   React.useEffect(() => setCurrentPage(1), [pageSize, fetchXml]);
 
   React.useEffect(() => {
     const fetchColumns = async () => {
       try {
-        if (allocatedWidth === -1) return;
+        if (allocatedWidth === -1 || !fetchXml) return;
 
         const filteredColumns = await getSortedColumns(fetchXml, allocatedWidth, dataverseService);
         setColumns(filteredColumns);
-      }
-      catch (error: any) {
+      } catch (error: any) {
         setError(error);
       }
     };
@@ -78,10 +74,10 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
     const fetchItems = async () => {
       isButtonActive = false;
       setIsLoading(true);
-      if (isDialogAccepted) return;
+      if (isDialogAccepted || !fetchXml) return;
 
       try {
-        totalRecordsCount.current = await dataverseService.getRecordsCount(fetchXml ?? '');
+        totalRecordsCount.current = await dataverseService.getRecordsCount(fetchXml);
         const newFetchXml = addOrderToFetch(fetchXml, sortingData);
 
         const data: IItemsData = {
@@ -93,8 +89,7 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
         const linkableItems: Entity[] = await getLinkableItems(data, dataverseService);
 
         setItems(linkableItems);
-      }
-      catch (error: any) {
+      } catch (error: any) {
         setError(error);
       }
       setIsLoading(false);
@@ -103,36 +98,38 @@ export const FetchToSubgrid: React.FC<IFetchToSubgridProps> = props => {
     fetchItems();
   }, [currentPage, isDialogAccepted, fetchXml, pageSize, sortingData]);
 
-  return <>
-    <Stack horizontal horizontalAlign="end" className={dataSetStyles.buttons}>
-      <CommandBar
+  return (
+    <>
+      <Stack horizontal horizontalAlign='end' className={dataSetStyles.buttons}>
+        <CommandBar
+          _service={dataverseService}
+          entityName={entityName}
+          selectedRecordIds={selectedRecordIds}
+          setDialogAccepted={setDialogAccepted}
+          isButtonActive={true}
+          deleteButtonVisibility={deleteButtonVisibility}
+          newButtonVisibility={newButtonVisibility}
+        />
+      </Stack>
+
+      <List
         _service={dataverseService}
         entityName={entityName}
-        selectedRecordIds={selectedRecordIds}
-        setDialogAccepted={setDialogAccepted}
-        isButtonActive={isButtonActive}
-        deleteButtonVisibility={deleteButtonVisibility}
-        newButtonVisibility={newButtonVisibility}
+        forceReRender={listInputsHashCode.current}
+        fetchXml={fetchXml}
+        selection={selection}
+        columns={columns}
+        items={items}
+        setSortingData={setSortingData}
       />
-    </Stack>
 
-    <List
-      _service={dataverseService}
-      entityName={entityName}
-      forceReRender={listInputsHashCode.current}
-      fetchXml={fetchXml}
-      selection={selection}
-      columns={columns}
-      items={items}
-      setSortingData={setSortingData}
-    />
-
-    <Footer
-      pageSize={pageSize}
-      selectedItemsCount={selectedRecordIds.length}
-      totalRecordsCount={totalRecordsCount.current}
-      currentPage={currentPage}
-      setCurrentPage={setCurrentPage}
-    />
-  </>;
+      <Footer
+        pageSize={pageSize}
+        selectedItemsCount={selectedRecordIds.length}
+        totalRecordsCount={totalRecordsCount.current}
+        currentPage={currentPage}
+        setCurrentPage={setCurrentPage}
+      />
+    </>
+  );
 };

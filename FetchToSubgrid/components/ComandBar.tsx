@@ -5,6 +5,7 @@ import { IDataverseService } from '../services/dataverseService';
 import { ContainerButtonStyles } from '../styles/comandBarStyles';
 
 const deleteIcon: IIconProps = { iconName: 'Delete' };
+const copy: IIconProps = { iconName: 'Copy' };
 const addIcon: IIconProps = { iconName: 'Add' };
 
 interface ICommandBarProps extends IService<IDataverseService> {
@@ -23,7 +24,8 @@ export const CommandBar = ({
   selectedRecordIds,
   newButtonVisibility,
   deleteButtonVisibility,
-  setDialogAccepted }: ICommandBarProps) => {
+  setDialogAccepted,
+}: ICommandBarProps) => {
   const displayName = React.useRef('');
 
   React.useEffect(() => {
@@ -44,10 +46,19 @@ export const CommandBar = ({
       setDialogAccepted(false);
     }
   };
+  const handleCopyRecords = async () => {
+    const deleteDialogStatus = await dataverseService.openRecordCopyDialog(entityName);
+
+    if (deleteDialogStatus.confirmed) {
+      setDialogAccepted(true);
+      await dataverseService.copySelectedRecords(selectedRecordIds, entityName);
+      setDialogAccepted(false);
+    }
+  };
 
   return (
     <div className='containerButtons'>
-      {newButtonVisibility &&
+      {newButtonVisibility && (
         <CommandBarButton
           styles={ContainerButtonStyles}
           maxLength={1}
@@ -55,14 +66,14 @@ export const CommandBar = ({
           text={`New ${displayName.current}`}
           onClick={handleNewButtonClick}
         />
-      }
-      {deleteButtonVisibility && isButtonActive &&
-        <CommandBarButton
-          styles={ContainerButtonStyles}
-          iconProps={deleteIcon}
-          text="Delete"
-          onClick={handleDeleteButtonClick}
-        />
-      }
-    </div>);
+      )}
+      {deleteButtonVisibility && isButtonActive && (
+        <CommandBarButton styles={ContainerButtonStyles} iconProps={deleteIcon} text='Delete' onClick={handleDeleteButtonClick} />
+      )}
+
+      {isButtonActive && (
+        <CommandBarButton styles={ContainerButtonStyles} iconProps={copy} text='Copy Records' onClick={handleCopyRecords} />
+      )}
+    </div>
+  );
 };
