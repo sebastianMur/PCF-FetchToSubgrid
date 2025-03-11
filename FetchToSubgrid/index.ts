@@ -3,6 +3,7 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
 import { AppWrapper, IAppWrapperProps } from './components/AppWrapper';
 import { DataverseService, IDataverseService } from './services/dataverseService';
 import { IColumn } from '@fluentui/react';
+import { IColumn } from '@fluentui/react';
 
 export class FetchToSubgrid implements ComponentFramework.ReactControl<IInputs, IOutputs> {
   private _dataverseService: IDataverseService;
